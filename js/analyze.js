@@ -3413,6 +3413,27 @@
       useReading: () => useScan(),
       ask: () => ask(true),
       recommendation: () => (fresh() && settled() ? recommendation() : null),
+      // Local QuickTime mode may show the strategy's provisional pick while
+      // its short Monte Carlo check finishes. Never return an old board's pick.
+      quickRecommendation: () => (fresh() ? recommendation() : null),
+      quickTimeState: () => {
+        const r = reader.result;
+        const rd = reader.reading;
+        if (!r || !r.ok || !rd) return null;
+        const loaded = reader.loaded === rd;
+        const current = loaded ? model : rd.model;
+        return {
+          chain: !!r.chain,
+          controls: !!(r.chain || r.decision || (r.doors && r.doors.cells && r.doors.cells.length)),
+          daysRead: !!r.days || (loaded && fresh()),
+          wardenRead: !!r.warden || (loaded && fresh()),
+          step: current.step,
+          giftPicksUncertain: current.startEvent === 'opulence' && !gifts.log,
+          toolsToConfirm: current.toolsToConfirm || '',
+          checks: loaded ? flags.size : rd.checks.size,
+          signature: JSON.stringify(current),
+        };
+      },
       // What the reader made of the last picture, in full (the desktop app's
       // test record keeps it).
       readingSummary: () => (reader.result && reader.image ? readingSummary(true) : ''),
