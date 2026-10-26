@@ -24,6 +24,9 @@ const CAGE_FIGHT = 'airplay-1400-badge-cagefight.png';
 // The iPad's screenshot of a run's last day (0 days until Riot), turned to
 // sRGB as the browser shows it: an orange glow lies over the screen's edges.
 const RIOT_GLOW = 'ipad-day0-riot-glow.png';
+// The board behind the Warden's Treasure, a Supreme Wolf in cell 06 wearing
+// a Prey mark.
+const PREY_SUPREME = 'airplay-1400-prey-supreme-wolf.png';
 
 // Regression guard: the objective "Undercurrents" wraps onto three lines,
 // and its third ("times Completed") passed for the "Torture Instrument"
@@ -141,4 +144,16 @@ test('the riot\'s glow on the last day leaves a Normal "?" door sure', { skip: m
     assert.ok(r.cells[n].shown.conf >= 0.6, `cell ${n + 1} in doubt at ${r.cells[n].shown.conf}`);
   }
   assert.equal(r.cells[11].shown.tier, 1, 'cell 12 stays Magic');
+});
+
+// Regression guard: the Prey mark's crosshair over a Supreme Wolf's foot
+// left its face at Wolf 0.68 against Rat 0.65; the cell was marked Check,
+// and the iPad mode hid its advice (the user's run, 2026-10-26).
+test('a marked Supreme Wolf is read sure', { skip: missing(PREY_SUPREME) }, () => {
+  const c = S.scan(frame(PREY_SUPREME), REF).cells[5];
+  assert.equal(c.kind, 'inmate');
+  assert.equal(c.beast, 'wolf');
+  assert.equal(c.tier, 4);
+  assert.ok(c.prey, 'its Prey mark');
+  assert.ok(c.conf >= 0.6, `in doubt at ${c.conf}`);
 });

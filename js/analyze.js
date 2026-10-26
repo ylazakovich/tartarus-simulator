@@ -2710,16 +2710,27 @@
   // picture of day 15 read as day 19, so the next, day 15 again, cleared the
   // run's confirmed instruments and asked for them again). Early in a run
   // (day 1 or 2), or far fewer inmates out than before: a run starts with
-  // about 4.
-  function newRun(m, base) {
+  // about 4. Or a panel with fewer instruments than the run held: a run
+  // only ever adds them (the user's iPad, 2026-10-26: a page kept a day-14
+  // board with the Filthy Claws and the Muzzle, and the next run's day 4,
+  // with only the Blood-Stained Trap, kept them and hid the advice). On any
+  // day, too, when none of the run's instruments is among the ones the
+  // reader is sure of: the board before kept them from another run, and the
+  // next day of the same run kept them again.
+  function newRun(m, base, read) {
+    const held = (base.tools || []).filter((id) => T.TOOLS[id]);
+    const panel = read ? read.length : 0;
+    const sure = read ? read.filter((t) => t.sim && t.conf >= TOOL_SURE) : [];
+    if (panel > 0 && panel < held.length && sure.length && !sure.some((t) => held.includes(t.sim))) return true;
     if (!(m.day < base.day)) return false;
     if (m.day <= 2) return true;
+    if (panel > 0 && panel < held.length) return true;
     const out = (x) => (x.cells || []).filter((c) => c && c.kind === 'inmate').length;
     return out(m) <= Math.max(5, out(base) - 4);
   }
 
   function runTools(read, base, m, notes, sims) {
-    const sameRun = !newRun(m, base);
+    const sameRun = !newRun(m, base, read);
     const known = sameRun ? (base.tools || []).filter((id) => T.TOOLS[id]) : [];
     const offer = sameRun && base.step === 'choice' && base.choice && base.choice.kind === 'tool' ? base.choice.options.filter((id) => T.TOOLS[id]) : [];
     const out = known.map((id) => ({ id, sim: id, name: T.toolName(id), conf: 1, kept: true }));
@@ -2995,7 +3006,7 @@
     // (f5, from the collected boards). Mornings with the office within
     // reach don't count: its card can be missed.
     const takers = ['forged', 'whip', 'stake'];
-    if (newRun(m, base)) m.shortDays = [];
+    if (newRun(m, base, read)) m.shortDays = [];
     const officeNear = [1, 2, 3, 4, 5, 6].some((k) => (m.warden + k) % T.CELL_COUNT === T.OFFICE);
     const doorsDue = T.DEFAULT_PARAMS.destinations - m.tools.filter((id) => takers.includes(id)).length;
     if (m.step === 'patrol' && !officeNear && m.dest.length && m.dest.length < doorsDue) m.shortDays = [...new Set([...(m.shortDays || []), m.day])];
@@ -3032,8 +3043,15 @@
     if (m.objective === 'king') m.milestone = highest >= T.SUPREME || chromatic > 0;
     // The jaws marker shows on every inmate with something to eat. Cells that
     // disagree were probably misread. A washed-out portrait takes the beast
-    // that makes the jaws fit.
-    const hasTarget = (state, n) => !state.cells[n].sealed && state.cells[n].inmate && T.devourOptions(state, n).length > 0;
+    // that makes the jaws fit. A meal wearing a Prey mark is its Lion's
+    // only: the game showed no jaws on a Rare Wolf whose only meal was a
+    // marked Rare Rat, and jaws on the Lion that marked it, a day later both
+    // Legendary (the user's iPad, 2026-10-26). Which Lion marked it isn't
+    // read, so any Lion of its rarity counts.
+    const hunterOf = (state, n) => state.cells[n].inmate.beast === 'lion'
+      && state.cells.some((d, k) => k !== n && !d.sealed && d.inmate && d.inmate.marked && d.inmate.tier === state.cells[n].inmate.tier);
+    const hasTarget = (state, n) => !state.cells[n].sealed && !!state.cells[n].inmate
+      && (T.devourOptions(state, n).some((o) => o.scratch || !state.cells[o.cell].inmate.marked) || hunterOf(state, n));
     r.cells.forEach((c, n) => {
       if (!c.ghost || m.cells[n].kind !== 'inmate') return;
       let best = null;

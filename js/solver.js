@@ -866,6 +866,9 @@
   // up can add a Rainbow before the run ends (report 330).
   const lastMoveMade = (st) => st.day >= st.maxDays && !st.chaining && !T.canDevourNow(st) && !canSwapNow(st) && !(T.canHuntNow && T.canHuntNow(st));
 
+  // The Thumb Ring opens sealed cells, so with none left it does nothing.
+  const ringOpens = (st) => st.cells.some((c) => c.sealed && c.n !== T.OFFICE);
+
   function pickGift(st, ctx, options, random) {
     const P = ctx.P;
     if (P.giftRank) return P.giftRank.find((id) => options.includes(id)) || options[0];
@@ -884,7 +887,7 @@
         if (gain > 0 && (!best || gain > best.gain)) best = { id, gain };
       }
       if (best) return best.id;
-      if (options.includes('ring')) return 'ring';
+      if (options.includes('ring') && ringOpens(st)) return 'ring';
     }
     // Opulence's chain (the user's find): the Brass Horn when it makes a
     // Rainbow now, as each brings 3 more picks; else the Thumb Ring while 3
@@ -901,7 +904,7 @@
           if (T.choose(trial, 'horn').ok && trial.vault.length > st.vault.length) return 'horn';
         }
       }
-      if (left >= 3 && options.includes('ring') && st.cells.some((c) => c.sealed && c.n !== T.OFFICE)) return 'ring';
+      if (left >= 3 && options.includes('ring') && ringOpens(st)) return 'ring';
       if (left >= 2 && options.includes('wine') && st.cells.some((c) => !c.sealed && c.inmate && c.inmate.tier < T.SUPREME - 1)) return 'wine';
     }
     let best = null;
@@ -1168,7 +1171,12 @@
     const out = [];
     if (st.phase === 'ended') return out;
     if (st.pending.length) {
-      for (const id of st.pending[0].options) out.push({ action: { type: 'choose', id }, label: `Take ${T.toolName(id)}` });
+      // A Thumb Ring on a full board does nothing: its playouts are taking
+      // no gift, and their noise once put it above Crimson Vintage (the
+      // user's iPad, 2026-10-26).
+      const options = st.pending[0].options;
+      const useless = (id) => id === 'ring' && st.pending[0].kind === 'gift' && !ringOpens(st) && options.length > 1;
+      for (const id of options) if (!useless(id)) out.push({ action: { type: 'choose', id }, label: `Take ${T.toolName(id)}` });
       if (T.canReroll && T.canReroll(st)) out.push({ action: { type: 'reroll' }, label: 'Re-roll the offer' });
       return out;
     }

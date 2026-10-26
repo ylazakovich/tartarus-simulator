@@ -418,10 +418,37 @@
     return { v, mean };
   }
 
+  // The face rows clear of a Prey mark's crosshair (its top 28 units above
+  // the cell's anchor), with room for faceMatch's 3-unit shift.
+  const PREY_FACE_ROWS = Math.floor((-31 - FACE.y0) / ((FACE.y1 - FACE.y0) / FACE.gy));
+
+  // Both vectors centred and scaled again over their first n entries only.
+  function topDot(a, b, n) {
+    let ma = 0;
+    let mb = 0;
+    for (let i = 0; i < n; i++) {
+      ma += a[i];
+      mb += b[i];
+    }
+    ma /= n;
+    mb /= n;
+    let dot = 0;
+    let na = 0;
+    let nb = 0;
+    for (let i = 0; i < n; i++) {
+      dot += (a[i] - ma) * (b[i] - mb);
+      na += (a[i] - ma) * (a[i] - ma);
+      nb += (b[i] - mb) * (b[i] - mb);
+    }
+    return dot / (Math.sqrt(na * nb) || 1);
+  }
+
   // The best beast for a portrait, allowing for a small misplacement.
-  function faceMatch(gray, w, h, x, y, k, faces) {
+  // rows: match only the portrait's top rows (a Prey mark covers its foot).
+  function faceMatch(gray, w, h, x, y, k, faces, rows) {
     const scores = {};
     let brightness = 0;
+    const n = rows ? rows * FACE.gx : 0;
     for (let dy = -3; dy <= 3; dy += 1.5) {
       for (let dx = -3; dx <= 3; dx += 1.5) {
         const f = faceVector(gray, w, h, x + dx * k, y + dy * k, k);
@@ -429,7 +456,8 @@
         for (const [beast, refs] of Object.entries(faces)) {
           for (const ref of refs) {
             let dot = 0;
-            for (let i = 0; i < ref.length; i++) dot += ref[i] * f.v[i];
+            if (n) dot = topDot(ref, f.v, n);
+            else for (let i = 0; i < ref.length; i++) dot += ref[i] * f.v[i];
             if (scores[beast] === undefined || dot > scores[beast]) scores[beast] = dot;
           }
         }
@@ -645,14 +673,25 @@
     // A washed-out, very bright portrait (an inmate shown through a door?).
     cell.ghost = face.brightness > 175 && face.score < 0.55;
     if (face.score > 0.42 || cell.ghost || frame.colored > 0.12) {
-      const margin = face.score - face.second;
+      // A Prey mark's crosshair covers the portrait's foot: its face is
+      // matched again on the rows above it, and the clearer match is kept
+      // (the user's iPad, 2026-10-26: a marked Supreme Wolf read Wolf 0.68
+      // against Rat 0.65, and the advice was hidden).
+      const prey = preyMark(img, x, y, k);
+      let best = face;
+      if (prey) {
+        const top = faceMatch(gray, img.width, img.height, x, y, k, ref.faces, PREY_FACE_ROWS);
+        if (top.score - top.second > face.score - face.second) best = Object.assign(top, { brightness: face.brightness });
+        cell.face = best;
+      }
+      const margin = best.score - best.second;
       Object.assign(cell, {
         kind: 'inmate',
-        beast: face.beast,
+        beast: best.beast,
         tier: frame.tier,
-        conf: Math.max(0.05, Math.min(1, (face.score - 0.3) * 1.6, 0.4 + margin * 3, frame.conf)) * (cell.ghost ? 0.5 : 1),
+        conf: Math.max(0.05, Math.min(1, (best.score - 0.3) * 1.6, 0.4 + margin * 3, frame.conf)) * (cell.ghost ? 0.5 : 1),
       });
-      if (preyMark(img, x, y, k)) cell.prey = true;
+      if (prey) cell.prey = true;
       return cell;
     }
     Object.assign(cell, { kind: 'empty', conf: 0.4 });
