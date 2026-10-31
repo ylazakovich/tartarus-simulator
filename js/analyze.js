@@ -2646,6 +2646,11 @@
       notes.push('The eater in the warden’s cell wasn’t read: set it as it is now.');
     }
     const tier = m.cells[warden].kind === 'inmate' ? m.cells[warden].tier : 0;
+    // The Avenger's Casket can open a sealed cell after a consume, holding a
+    // meal for the eater at its new rarity. Lit as a meal, its beast reads
+    // sure, so it isn't a guess to check (the user's run, 2026-10-31: the
+    // chain's opened meal was marked, and the advice hidden).
+    const casket = !first && (m.tools || []).includes('revenge');
     // The meals on offer: the board before keeps its inmate when it fits;
     // otherwise the beast read here, at the eater's rarity. A scratched door
     // stays a door.
@@ -2654,7 +2659,7 @@
       if (c.kind === 'scratch') continue;
       if (c.kind === 'inmate' && c.tier <= tier && (!r.cells[n].beast || c.beast === r.cells[n].beast)) continue;
       m.cells[n] = { kind: 'inmate', beast: r.cells[n].beast || (c.kind === 'inmate' ? c.beast : 'mammoth'), tier, ivory: c.kind === 'inmate' ? !!c.ivory : false, prey: null };
-      checks.add(n);
+      if (!(casket && c.kind === 'sealed' && r.cells[n].kind === 'inmate' && r.cells[n].conf >= 0.6)) checks.add(n);
     }
     m.step = first ? 'manage' : 'chain';
     m.devourUsed = m.step === 'chain';
