@@ -2230,24 +2230,6 @@
     return prev[b.length];
   }
 
-  // The instrument a card's text names: the known name it's closest to,
-  // when that's clearly closer than any other. null when it isn't.
-  function nameFromText(text) {
-    const letters = (t) => t.toLowerCase().replace(/[^a-z]/g, '');
-    // The whole text, each line, and each two lines together: a long name
-    // ("Iron Tongs of Lust: Mammoth") can wrap onto a second line.
-    const lines = text.split('\n');
-    const pairs = lines.slice(1).map((l, i) => `${lines[i]} ${l}`);
-    const tries = [text, ...lines, ...pairs].map(letters).filter((t) => t.length >= 3);
-    const scores = T.TOOL_IDS.map((id) => {
-      // The full name, and the part before a colon ("Iron Tongs of Lust").
-      const forms = [...new Set([T.toolName(id), T.toolName(id).split(':')[0]].map(letters))];
-      return { id, score: Math.min(...forms.flatMap((n) => tries.map((t) => editDistance(t, n) / n.length)), 9) };
-    }).sort((a, b) => a.score - b.score);
-    const [best, next] = scores;
-    return best && best.score <= 0.3 && (!next || next.score - best.score >= 0.15) ? best : null;
-  }
-
   // The three cards' names, left to right, from the band under each card's
   // art (a raised card's title sits a little higher, inside the band). ui:
   // the cards' size the reader found (see scanPick).
@@ -2276,7 +2258,7 @@
         // reader waits on canvas.toBlob, which a hidden page (the desktop
         // app's analyzer) can put off for most of a second.
         const { data } = await worker.recognize(crop.toDataURL('image/png'));
-        out.push(nameFromText(data.text || ''));
+        out.push(T.toolFromText(data.text || ''));
       } catch (e) {
         out.push(null);
       }
@@ -2423,7 +2405,7 @@
       crop.getContext('2d').drawImage(canvas, x0, y0, x1 - x0, y1 - y0, 0, 0, crop.width, crop.height);
       try {
         const { data } = await worker.recognize(crop);
-        const name = nameFromText(data.text || '');
+        const name = T.toolFromText(data.text || '');
         if (!name) return { ok: false, reason: `the name read as “${(data.text || '').trim().split('\n')[0]}”, which isn’t an instrument`, text: data.text || '' };
         return { ok: true, id: name.id, name: T.toolName(name.id), text: data.text || '' };
       } catch (e) {
