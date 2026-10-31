@@ -172,3 +172,21 @@ test('a two-line name set further apart is still read whole', { skip: missing(TW
   assert.ok(tip.title[3] >= 169, `title ${tip.title} holds the second line of the name`);
   assert.ok(tip.title[3] < 190, `title ${tip.title} stops above "Condition"`);
 });
+
+// Regression guard: the reader had no panel icon for the Ravenous Chains,
+// the Iron Crown or the iPad's Avenger's Casket, so the Chains read as the
+// Barbed Collar or the Trap, the Crown as the Skewered Rat Heads, and the
+// Casket as the Beastcage (the user's iPad runs, 2026-10-29 to 2026-10-31).
+// None of these frames is one the icons were learned from.
+const PANELS = {
+  'ipad-board-before-consume.png': ['revenge', 'crown'],
+  'ipad-panel-ravenous-shackles.png': ['ravenous', 'shackles'],
+  'ipad-panel-ravenous-casket.png': ['ravenous', 'revenge'],
+  'airplay-1400-hunt-card.png': ['revenge', 'trap'],
+};
+for (const [file, want] of Object.entries(PANELS)) {
+  test(`the iPad panel's instruments are read: ${want.join(', ')}`, { skip: missing(file) }, () => {
+    const r = S.scan(frame(file), S.withPanelIcons(REF, PICK));
+    assert.deepEqual(r.tools.tools.map((t) => REF.toolNames[t.id].sim), want);
+  });
+}
