@@ -265,26 +265,47 @@
   let adviceId = 0;
   function announce(text) { say(text, `${adviceId}|${text}`); }
   // Spoken advice: each new move once, without its prefix. A move waits
-  // SAY_WAIT before it is said (the user, 2026-11-01: two moves said in a
-  // row ran into each other); a move that changes within the wait replaces
-  // the one waiting, so only the last is heard.
-  const SAY_WAIT = 500;
-  let spoken = '', sayTimer = null;
+  // SAY_WAIT before it is said, and a move that changes within the wait
+  // replaces the one waiting, so only the last is heard. A phrase is never
+  // cut short (the user, 2026-11-01: "Cell 13" and "Cell 10" were heard over
+  // each other; Chrome plays the tail of a cancelled utterance over the
+  // next): the next phrase waits for its end, or for SAY_STUCK when Chrome
+  // never reports one.
+  // SAY_STUCK counts from speak(): a phrase longer than that is taken as
+  // over, and the next is queued behind it by the browser, never over it.
+  const SAY_WAIT = 250, SAY_STUCK = 3000;
+  let spoken = '', sayTimer = null, pending = '', saying = null;
   const voiceOn = () => !!$('qt-speak') && $('qt-speak').checked && typeof speechSynthesis !== 'undefined';
   function say(text, key) {
     if (!text || key === spoken || !voiceOn()) return;
     spoken = key;
+    pending = text;
     clearTimeout(sayTimer);
-    sayTimer = setTimeout(() => {
-      sayTimer = null;
-      if (!voiceOn()) return;
-      // "cell 04" is shown padded but said "cell 4", not "zero four".
-      // Chrome can drop an utterance spoken right after a cancel: cancel only a running one.
-      try { if (speechSynthesis.speaking) speechSynthesis.cancel(); speechSynthesis.speak(utterance(text.replace(/\b([Cc]ell) 0(\d)\b/g, '$1 $2'))); } catch (e) { /* no voice */ }
-    }, SAY_WAIT);
+    sayTimer = setTimeout(speakPending, SAY_WAIT);
+  }
+  // Said when its wait is up, or when the phrase before it ends, whichever is later.
+  function speakPending() {
+    clearTimeout(sayTimer); sayTimer = null;
+    if (!voiceOn()) { pending = ''; return; }
+    if (!pending || saying) return;
+    // "cell 04" is shown padded but said "cell 4", not "zero four".
+    const u = utterance(pending.replace(/\b([Cc]ell) 0(\d)\b/g, '$1 $2'));
+    pending = '';
+    const ended = () => {
+      if (saying !== u) return;
+      clearTimeout(saying.stuck); saying = null;
+      // A move still in its wait is left to its timer: the wait is what
+      // keeps a change of mind from being said.
+      if (pending && !sayTimer) speakPending();
+    };
+    u.onend = ended; u.onerror = ended;
+    saying = u;
+    u.stuck = setTimeout(ended, SAY_STUCK);
+    try { speechSynthesis.speak(u); } catch (e) { ended(); }
   }
   function hush() {
-    clearTimeout(sayTimer); sayTimer = null; spoken = '';
+    clearTimeout(sayTimer); sayTimer = null; pending = ''; spoken = '';
+    if (saying) { clearTimeout(saying.stuck); saying = null; }
     try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch (e) { /* no voice */ }
   }
   function utterance(text) {
@@ -325,7 +346,8 @@
     $('qt-voice-pick').addEventListener('change', (e) => {
       savedVoice = e.target.value;
       try { localStorage.setItem('qt-voice', savedVoice); } catch (err) { /* private mode */ }
-      try { speechSynthesis.cancel(); speechSynthesis.speak(utterance('Move to cell 3.')); } catch (err) { /* no voice */ }
+      hush();
+      try { speechSynthesis.speak(utterance('Move to cell 3.')); } catch (err) { /* no voice */ }
     });
   }
   let savedSpeak = null;
