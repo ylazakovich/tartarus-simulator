@@ -379,6 +379,14 @@
     if (!survey.known.length) return `Tap instrument ${k} of ${survey.slots} on the iPad${k === 1 ? ', the leftmost' : ''}, and keep its tip open.`;
     return wanted > 1 ? `Tap the new instrument ${k} of ${wanted} on the panel, and keep its tip open.` : 'Tap the new instrument on the panel (the rightmost), and keep its tip open.';
   }
+  // The prompt's short form for the voice (the user, 2026-11-01): the panel
+  // keeps the full one, with the tip to keep open.
+  function surveySaid() {
+    const wanted = survey.slots - survey.known.length;
+    const k = survey.got.length + 1;
+    if (!survey.known.length) return `Tap instrument ${k}.`;
+    return wanted > 1 ? `Tap new ${k} of ${wanted}.` : 'Tap the new one.';
+  }
   // Whether a survey can start on the board as read: the analyzer asks
   // about the instruments, and the survey is on hand.
   const surveyReady = (state) => !!(state && state.toolsToConfirm && A.toolSurvey && A.readToolTip && A.setTools);
@@ -393,8 +401,7 @@
     survey = { slots: t.slots, known, got: [], fails: 0 };
     record('survey', { start: true, slots: t.slots, known: t.known });
     document.documentElement.classList.add('qt-stale'); adviceVersion = -1; clearInterval(advicePoll); advicePoll = null;
-    const prompt = surveyPrompt();
-    status(prompt); advice('Advice hidden until the instruments are read.'); announce(prompt);
+    status(surveyPrompt()); advice('Advice hidden until the instruments are read.'); announce(surveySaid());
     return true;
   }
   // A tip read while the survey is on. Returns true when the survey took the
@@ -409,7 +416,7 @@
       if (survey.fails < SURVEY_FAILS) { status(`The tip’s name couldn’t be read: tap it again, or the next instrument.`); return true; }
       survey = null;
       status('The tips couldn’t be read. Set the instruments below and press These are right, then Recheck.');
-      announce('The instruments need setting by hand on the Mac.');
+      announce('Set the instruments on the Mac.');
       return true;
     }
     survey.fails = 0;
@@ -417,8 +424,7 @@
     survey.got.push(tip.id);
     record('survey', { read: tip.id, name: tip.name });
     if (survey.known.length + survey.got.length < survey.slots) {
-      const prompt = surveyPrompt();
-      status(`${tip.name} read. ${prompt}`); announce(prompt);
+      status(`${tip.name} read. ${surveyPrompt()}`); announce(surveySaid());
       return true;
     }
     const ids = survey.known.concat(survey.got);
@@ -427,7 +433,7 @@
     const asked = A.setTools(ids);
     record('survey', { set: ids });
     lastSignature = '';
-    announce(`Instruments set: ${names.join(', ')}.`);
+    announce('Set.');
     status(asked ? `Instruments read from their tips: ${names.join(', ')}.` : 'Instruments set. Check the settings below and press Recheck.');
     if (asked) showRecommendation(restless ? null : version, mine);
     else advice('Advice hidden until the board is checked.');
