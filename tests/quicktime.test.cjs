@@ -160,6 +160,7 @@ function bridgeHarness(options = {}) {
   const track = { getSettings: () => ({ displaySurface: options.surface || 'window' }), stop() {}, addEventListener() {} };
   const spoken = [];
   const voicing = [];
+  const cancels = { count: 0 };
   const voicesUsed = [];
   const stored = {};
   const docListeners = {};
@@ -175,7 +176,7 @@ function bridgeHarness(options = {}) {
     performance: { now: () => now }, createImageBitmap: async () => ({ close() {} }),
     // The voice: each utterance ends at once, or, with slowVoice, when the
     // test says so (bridge.voiceEnds), as a phrase still being said.
-    speechSynthesis: { cancel() {}, speak(u) { spoken.push(u.text); voicesUsed.push(u.voice && u.voice.name); if (options.slowVoice) voicing.push(u); else if (u.onend) u.onend(); }, getVoices: () => options.voices || [], addEventListener() {} }, SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
+    speechSynthesis: { cancel() { cancels.count++; }, speak(u) { spoken.push(u.text); voicesUsed.push(u.voice && u.voice.name); if (options.slowVoice) voicing.push(u); else if (u.onend) u.onend(); }, getVoices: () => options.voices || [], addEventListener() {} }, SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
     document: {
       getElementById: get, querySelector: () => ({ prepend() {} }), addEventListener: (name, fn) => { docListeners[name] = fn; },
       documentElement: { classList: { add: (...names) => names.forEach((n) => classes.add(n)), remove: (...names) => names.forEach((n) => classes.delete(n)) } },
@@ -228,7 +229,7 @@ function bridgeHarness(options = {}) {
     voiceEnds() { const u = voicing.shift(); if (u && u.onend) u.onend(); },
     get: (id) => get(id).textContent,
     stop: () => get('qt-stop').listeners.click(),
-    classes, calls, spoken, voicesUsed, stored, elements,
+    classes, calls, spoken, voicesUsed, stored, elements, cancels,
     paste: () => docListeners.paste({ clipboardData: { items: [{ type: 'image/png' }] } }),
   };
 }
@@ -716,10 +717,56 @@ test('a phrase whose end Chrome never reports does not hold the next one for eve
   bridge.elapse(250);
   bridge.move({ type: 'patrol', cell: 12 });
   bridge.poll(180);
-  bridge.elapse(2000);
-  assert.deepEqual(bridge.spoken, ['Cell 4.']);
-  bridge.elapse(2000);
+  bridge.elapse(2800);
+  assert.deepEqual(bridge.spoken, ['Cell 4.'], 'held up to 3 s after Cell 4 began');
+  bridge.elapse(50);
   assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 13.']);
+  assert.equal(bridge.cancels.count, 0, 'no phrase is cut, not even a stuck one');
+  bridge.stop();
+});
+test('a move that changed while a phrase was said still waits out its quarter second after the phrase ends', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' }, slowVoice: true });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.elapse(250);
+  bridge.move({ type: 'patrol', cell: 12 });
+  bridge.poll(180);
+  bridge.elapse(100);
+  // Cell 4 ends 100 ms into Cell 13's wait: Cell 13 is said when its wait is up.
+  bridge.voiceEnds();
+  assert.deepEqual(bridge.spoken, ['Cell 4.'], 'the wait still runs');
+  bridge.elapse(150);
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 13.']);
+  // Cell 13 outlasts Cell 10's wait: Cell 10 is said the moment Cell 13 ends.
+  bridge.move({ type: 'patrol', cell: 9 });
+  bridge.poll(50);
+  bridge.elapse(300);
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 13.'], 'held while Cell 13 is said');
+  bridge.voiceEnds();
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 13.', 'Cell 10.']);
+  assert.equal(bridge.cancels.count, 0, 'no phrase is cut short');
+  bridge.stop();
+});
+test('a phrase cut by Stop does not end the one said after a restart', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' }, slowVoice: true });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.elapse(250);
+  assert.deepEqual(bridge.spoken, ['Cell 4.']);
+  bridge.stop();
+  assert.equal(bridge.cancels.count, 1, 'Stop cuts the phrase');
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.elapse(250);
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 4.']);
+  // Chrome reports the cut phrase's end late: the new one is still being said.
+  bridge.voiceEnds();
+  bridge.move({ type: 'patrol', cell: 12 });
+  bridge.poll(180);
+  bridge.elapse(250);
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 4.'], 'Cell 13 waits for the second Cell 4 to end');
+  bridge.voiceEnds();
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 4.', 'Cell 13.']);
   bridge.stop();
 });
 test('turning the voice off drops a move not yet said', async () => {

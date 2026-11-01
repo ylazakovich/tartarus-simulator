@@ -271,6 +271,8 @@
   // each other; Chrome plays the tail of a cancelled utterance over the
   // next): the next phrase waits for its end, or for SAY_STUCK when Chrome
   // never reports one.
+  // SAY_STUCK counts from speak(): a phrase longer than that is taken as
+  // over, and the next is queued behind it by the browser, never over it.
   const SAY_WAIT = 250, SAY_STUCK = 3000;
   let spoken = '', sayTimer = null, pending = '', saying = null;
   const voiceOn = () => !!$('qt-speak') && $('qt-speak').checked && typeof speechSynthesis !== 'undefined';
@@ -281,8 +283,9 @@
     clearTimeout(sayTimer);
     sayTimer = setTimeout(speakPending, SAY_WAIT);
   }
+  // Said when its wait is up, or when the phrase before it ends, whichever is later.
   function speakPending() {
-    sayTimer = null;
+    clearTimeout(sayTimer); sayTimer = null;
     if (!voiceOn()) { pending = ''; return; }
     if (!pending || saying) return;
     // "cell 04" is shown padded but said "cell 4", not "zero four".
@@ -291,7 +294,9 @@
     const ended = () => {
       if (saying !== u) return;
       clearTimeout(saying.stuck); saying = null;
-      if (pending) speakPending();
+      // A move still in its wait is left to its timer: the wait is what
+      // keeps a change of mind from being said.
+      if (pending && !sayTimer) speakPending();
     };
     u.onend = ended; u.onerror = ended;
     saying = u;
@@ -341,7 +346,8 @@
     $('qt-voice-pick').addEventListener('change', (e) => {
       savedVoice = e.target.value;
       try { localStorage.setItem('qt-voice', savedVoice); } catch (err) { /* private mode */ }
-      try { speechSynthesis.cancel(); speechSynthesis.speak(utterance('Move to cell 3.')); } catch (err) { /* no voice */ }
+      hush();
+      try { speechSynthesis.speak(utterance('Move to cell 3.')); } catch (err) { /* no voice */ }
     });
   }
   let savedSpeak = null;
