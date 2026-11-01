@@ -264,14 +264,26 @@
   // adviceId counts the boards and Treasures: each is said once per text.
   let adviceId = 0;
   function announce(text) { say(text, `${adviceId}|${text}`); }
-  // Spoken advice: each new move once, without its prefix.
-  let spoken = '';
+  // Spoken advice: each new move once, without its prefix. A move waits
+  // SAY_WAIT before it is said (the user, 2026-11-01: two moves said in a
+  // row ran into each other); a move that changes within the wait replaces
+  // the one waiting, so only the last is heard.
+  const SAY_WAIT = 500;
+  let spoken = '', saying = null;
   function say(text, key) {
     if (!text || key === spoken || !$('qt-speak') || !$('qt-speak').checked || typeof speechSynthesis === 'undefined') return;
     spoken = key;
-    // "cell 04" is shown padded but said "cell 4", not "zero four".
-    // Chrome can drop an utterance spoken right after a cancel: cancel only a running one.
-    try { if (speechSynthesis.speaking) speechSynthesis.cancel(); speechSynthesis.speak(utterance(text.replace(/\bcell 0(\d)\b/g, 'cell $1'))); } catch (e) { /* no voice */ }
+    clearTimeout(saying);
+    saying = setTimeout(() => {
+      saying = null;
+      // "cell 04" is shown padded but said "cell 4", not "zero four".
+      // Chrome can drop an utterance spoken right after a cancel: cancel only a running one.
+      try { if (speechSynthesis.speaking) speechSynthesis.cancel(); speechSynthesis.speak(utterance(text.replace(/\b([Cc]ell) 0(\d)\b/g, '$1 $2'))); } catch (e) { /* no voice */ }
+    }, SAY_WAIT);
+  }
+  function hush() {
+    clearTimeout(saying); saying = null; spoken = '';
+    try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch (e) { /* no voice */ }
   }
   function utterance(text) {
     const u = new SpeechSynthesisUtterance(text);
@@ -410,7 +422,7 @@
     document.documentElement.classList.remove('qt-capturing', 'qt-stale');
     if (timer && timer.terminate) timer.terminate(); else clearInterval(timer);
     timer = null; clearInterval(advicePoll); advicePoll = null;
-    try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch (e) { /* no voice */ } spoken = '';
+    hush();
     if (stream) stream.getTracks().forEach((track) => track.stop());
     stream = null; video.srcObject = null;
     treasureOpen = false;
@@ -423,18 +435,21 @@
   function moveText(rec) {
     if (!rec || !rec.action) return '';
     const a = rec.action;
-    const cell = (n) => Number(n) === T.OFFICE ? 'the office' : `cell ${String(Number(n) + 1).padStart(2, '0')}`;
+    // Short, so the move is heard before the next one comes: the button's
+    // word, or the cell (the user, 2026-11-01).
+    const number = (n) => String(Number(n) + 1).padStart(2, '0');
+    const cell = (n) => Number(n) === T.OFFICE ? 'the office' : `cell ${number(n)}`;
     switch (a.type) {
-      case 'patrol': return `Go to ${cell(a.cell)}.`;
-      case 'devour': case 'chain': return `Consume the inmate in ${cell(a.to)}.`;
-      case 'swap': return 'Press Replace.';
+      case 'patrol': return Number(a.cell) === T.OFFICE ? 'Office.' : `Cell ${number(a.cell)}.`;
+      case 'devour': case 'chain': return `Consume ${cell(a.to)}.`;
+      case 'swap': return 'Replace.';
       case 'end': return endText(A.quickTimeState && A.quickTimeState());
-      case 'stopchain': return 'Press Cancel to stop the chain.';
-      case 'office': return a.choice === 'bestow' ? 'Choose Bestow.' : a.choice === 'instigate' ? 'Choose Instigate.' : `Office: ${a.choice}.`;
-      case 'event': return a.accept ? 'Accept the event.' : 'Skip the event.';
+      case 'stopchain': return 'Cancel chain.';
+      case 'office': return a.choice === 'bestow' ? 'Bestow.' : a.choice === 'instigate' ? 'Instigate.' : `Office: ${a.choice}.`;
+      case 'event': return a.accept ? 'Accept.' : 'Skip.';
       case 'choose': return `Take ${T.TOOLS && T.TOOLS[a.id] ? T.TOOLS[a.id].name : T.GIFTS && T.GIFTS[a.id] ? T.GIFTS[a.id].name : a.id}.`;
-      case 'reroll': return 'Re-roll the instrument offer.';
-      case 'hunt': return `Mark the prey in ${cell(a.to)}.`;
+      case 'reroll': return 'Re-roll.';
+      case 'hunt': return `Mark ${cell(a.to)}.`;
       default: return '';
     }
   }
