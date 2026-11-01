@@ -65,9 +65,11 @@
   // The check ends early once the leader is ahead of every other move by
   // CLEAR_SE of its paired margins (after LIVE_MIN playouts each), and in any
   // case after CHECK_MS, with what it has then. The user: a decision within a
-  // second of the picture, "faster is way better".
+  // second of the picture, "faster is way better"; 2026-11-01, 700 → 400 ms,
+  // the voice now says a later change of mind as a second phrase, never over
+  // the first.
   const CLEAR_SE = 3;
-  const CHECK_MS = 700;
+  const CHECK_MS = 400;
   const STEPS = ['patrol', 'manage', 'office', 'chain', 'event', 'ratway', 'choice'];
   const STEP_NAMES = { patrol: 'Which door to patrol', manage: 'After the patrol', office: 'Instigate or Bestow', chain: 'A meal to pick, or Cancel', event: 'A special event', ratway: 'Sewer Ratway: any cell', choice: 'A tool or gift' };
   const BEAST_KEYS = { m: 'mammoth', l: 'lion', w: 'wolf', r: 'rat' };
