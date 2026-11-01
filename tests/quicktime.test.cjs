@@ -55,8 +55,8 @@ test('unconfirmed tools and an event overlay require explicit review', () => {
 test('ending from a meal picker tells the player to cancel before ending', () => {
   const context = { window: {}, URLSearchParams, location: { search: '' } };
   vm.runInNewContext(fs.readFileSync(sourcePath, 'utf8'), context);
-  assert.equal(context.window.TartarusQuickTime.endText({ chain: true }), 'Cancel the consume, then End the day.');
-  assert.equal(context.window.TartarusQuickTime.endText({ chain: false }), 'Press End.');
+  assert.equal(context.window.TartarusQuickTime.endText({ chain: true }), 'Cancel consume, then End.');
+  assert.equal(context.window.TartarusQuickTime.endText({ chain: false }), 'End.');
 });
 function lifecycle() {
   const context = { window: {}, URLSearchParams, location: { search: '' }, setTimeout, clearTimeout };
@@ -678,6 +678,15 @@ test('a move is said half a second after it shows, and a change within that is s
   assert.deepEqual(bridge.spoken, [], 'still within the half second of the new move');
   bridge.elapse(200);
   assert.deepEqual(bridge.spoken, ['Consume cell 4.']);
+  bridge.stop();
+});
+test('turning the voice off drops a move not yet said', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.elements.get('qt-speak').checked = false;
+  bridge.elapse(1000);
+  assert.deepEqual(bridge.spoken, []);
   bridge.stop();
 });
 test('stopping the capture drops a move not yet said', async () => {

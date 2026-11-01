@@ -134,7 +134,7 @@
       return this.tail;
     }
   }
-  function endText(state) { return state && state.chain ? 'Cancel the consume, then End the day.' : 'Press End.'; }
+  function endText(state) { return state && state.chain ? 'Cancel consume, then End.' : 'End.'; }
   // The browser's own pick for en-US can be a novelty voice (Albert, on a Mac
   // whose system language isn't US English), so the voice is picked here:
   // Premium, then Enhanced, then Google's, then Samantha, then the rest.
@@ -269,20 +269,22 @@
   // row ran into each other); a move that changes within the wait replaces
   // the one waiting, so only the last is heard.
   const SAY_WAIT = 500;
-  let spoken = '', saying = null;
+  let spoken = '', sayTimer = null;
+  const voiceOn = () => !!$('qt-speak') && $('qt-speak').checked && typeof speechSynthesis !== 'undefined';
   function say(text, key) {
-    if (!text || key === spoken || !$('qt-speak') || !$('qt-speak').checked || typeof speechSynthesis === 'undefined') return;
+    if (!text || key === spoken || !voiceOn()) return;
     spoken = key;
-    clearTimeout(saying);
-    saying = setTimeout(() => {
-      saying = null;
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(() => {
+      sayTimer = null;
+      if (!voiceOn()) return;
       // "cell 04" is shown padded but said "cell 4", not "zero four".
       // Chrome can drop an utterance spoken right after a cancel: cancel only a running one.
       try { if (speechSynthesis.speaking) speechSynthesis.cancel(); speechSynthesis.speak(utterance(text.replace(/\b([Cc]ell) 0(\d)\b/g, '$1 $2'))); } catch (e) { /* no voice */ }
     }, SAY_WAIT);
   }
   function hush() {
-    clearTimeout(saying); saying = null; spoken = '';
+    clearTimeout(sayTimer); sayTimer = null; spoken = '';
     try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch (e) { /* no voice */ }
   }
   function utterance(text) {
