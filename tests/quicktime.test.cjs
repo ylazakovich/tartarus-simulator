@@ -55,8 +55,8 @@ test('unconfirmed tools and an event overlay require explicit review', () => {
 test('ending from a meal picker tells the player to cancel before ending', () => {
   const context = { window: {}, URLSearchParams, location: { search: '' } };
   vm.runInNewContext(fs.readFileSync(sourcePath, 'utf8'), context);
-  assert.equal(context.window.TartarusQuickTime.endText({ chain: true }), 'Cancel the consume, then End the day.');
-  assert.equal(context.window.TartarusQuickTime.endText({ chain: false }), 'Press End.');
+  assert.equal(context.window.TartarusQuickTime.endText({ chain: true }), 'Cancel consume, then End.');
+  assert.equal(context.window.TartarusQuickTime.endText({ chain: false }), 'End.');
 });
 function lifecycle() {
   const context = { window: {}, URLSearchParams, location: { search: '' }, setTimeout, clearTimeout };
@@ -101,6 +101,10 @@ function bridgeHarness(options = {}) {
   const element = () => ({ textContent: '', hidden: false, disabled: false, checked: true, listeners: {}, firstChild: null, classList: { add() {} }, setAttribute() {}, appendChild() {}, append() {}, prepend() {}, replaceChildren() {}, focus() {}, addEventListener(name, fn) { this.listeners[name] = fn; } });
   const get = (id) => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
   const intervals = new Map(); let intervalId = 0, now = 0, pixel = 20, screen = 'treasure';
+  // Timeouts run on the bridge's clock, when `now` passes their time.
+  const timeouts = new Map(); let timeoutId = 0;
+  const due = () => { for (const [id, t] of [...timeouts]) if (t.at <= now) { timeouts.delete(id); t.fn(); } };
+  const elapse = (ms) => { now += ms; due(); };
   const analyzerSource = fs.readFileSync(require('node:path').join(__dirname, '../js/analyze.js'), 'utf8');
   const start = analyzerSource.indexOf('  function useTreasure(after) {');
   const finish = analyzerSource.indexOf('\n  // Without workers', start);
@@ -119,7 +123,7 @@ function bridgeHarness(options = {}) {
   const recommendation = () => {
     if (!state.isFresh || state.model.treasureWait) return null;
     if (state.model.step === 'choice') return { action: { type: 'choose', id: 'wine' } };
-    return { action: rd.move === 'patrol' ? { type: 'patrol', cell: 3 } : { type: rd.move, to: 3 } };
+    return { action: typeof rd.move === 'object' ? rd.move : rd.move === 'patrol' ? { type: 'patrol', cell: 3 } : { type: rd.move, to: 3 } };
   };
   const A = {
     async readFrame() {
@@ -160,10 +164,11 @@ function bridgeHarness(options = {}) {
   const docListeners = {};
   // An animated overlay: the next frame differs while a check still runs.
   const tick = () => [...intervals.values()].find((i) => i.ms === 250).fn();
-  if (options.animated) options.animate = () => { pixel = (pixel + 50) % 250; now += 300; tick(); };
+  if (options.animated) options.animate = () => { pixel = (pixel + 50) % 250; elapse(300); tick(); };
   const ctx = {
     window: { TartarusAnalyzer: A, Tartarus: { OFFICE: 0, GIFTS: { wine: { name: 'Crimson Wine' } } }, addEventListener() {} },
-    location: { search: options.record ? '?quicktime=1&record=1' : '?quicktime=1', hostname: options.hostname || 'localhost' }, URLSearchParams, fetch: options.fetch, JSON, Date, localStorage: { getItem: (k) => (options.storage && options.storage[k]) || null, setItem: (k, v) => { stored[k] = v; } }, setTimeout, clearTimeout,
+    location: { search: options.record ? '?quicktime=1&record=1' : '?quicktime=1', hostname: options.hostname || 'localhost' }, URLSearchParams, fetch: options.fetch, JSON, Date, localStorage: { getItem: (k) => (options.storage && options.storage[k]) || null, setItem: (k, v) => { stored[k] = v; } },
+    setTimeout: (fn, ms) => { timeouts.set(++timeoutId, { fn, at: now + (ms || 0) }); return timeoutId; }, clearTimeout: (id) => timeouts.delete(id),
     setInterval: (fn, ms) => { intervals.set(++intervalId, { fn, ms }); return intervalId; }, clearInterval: (id) => intervals.delete(id),
     navigator: Object.assign({ mediaDevices: { getDisplayMedia: async () => ({ getVideoTracks: () => [track], getTracks: () => [track] }) } }, options.safari ? {} : { userAgentData: { brands: [{ brand: 'Chromium', version: '130' }] } }),
     performance: { now: () => now }, createImageBitmap: async () => ({ close() {} }),
@@ -185,9 +190,9 @@ function bridgeHarness(options = {}) {
     // settles long enough to be read.
     async screen(next) {
       screen = next === true ? 'view' : next === false ? 'treasure' : next;
-      pixel = (pixel + 50) % 250; now += 100;
+      pixel = (pixel + 50) % 250; elapse(100);
       [...intervals.values()].find((i) => i.ms === 250).fn();
-      now += 1000; [...intervals.values()].find((i) => i.ms === 250).fn();
+      elapse(1000); [...intervals.values()].find((i) => i.ms === 250).fn();
       for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
       // The advice poll, once, as the browser would run it.
       const poll = [...intervals.values()].find((i) => i.ms === 180);
@@ -197,7 +202,7 @@ function bridgeHarness(options = {}) {
     async restless(next) {
       screen = next;
       for (let t = 0; t < 4000; t += 300) {
-        pixel = (pixel + 50) % 250; now += 300; tick();
+        pixel = (pixel + 50) % 250; elapse(300); tick();
         for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
       }
       const poll = [...intervals.values()].find((i) => i.ms === 180);
@@ -206,13 +211,17 @@ function bridgeHarness(options = {}) {
     // Time passes on a still screen, the 250 ms timer running.
     async wait(ms) {
       for (let t = 0; t < ms; t += 250) {
-        now += 250; tick();
+        elapse(250); tick();
         for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve));
       }
       const poll = [...intervals.values()].find((i) => i.ms === 180);
       if (poll) poll.fn();
     },
     fix() { rd.fixed = 0; state.isFresh = false; },
+    // Time passes with no frame read; the advice poll runs once, as in the browser.
+    poll(ms) { elapse(ms); const poll = [...intervals.values()].find((i) => i.ms === 180); if (poll) poll.fn(); },
+    elapse,
+    move(kind) { rd.move = kind; },
     get: (id) => get(id).textContent,
     stop: () => get('qt-stop').listeners.click(),
     classes, calls, spoken, voicesUsed, stored, elements,
@@ -262,7 +271,7 @@ test('the same board read again keeps the fixes made on it', async () => {
   // A notification over the same board: the screen changes, then settles back.
   await bridge.screen({ board: 'A', checks: 2 });
   assert.equal(bridge.calls.useReading, 1, 'the fixed board is not replaced by the same reading');
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   await bridge.screen({ board: 'B' });
   assert.equal(bridge.calls.useReading, 2);
   bridge.stop();
@@ -274,7 +283,7 @@ test('a Treasure right after a board read asks for the eye view, and advises not
   const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
   await bridge.start();
   await bridge.screen({ board: 'A' });
-  assert.match(bridge.get('qt-advice'), /Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Cell 04/);
   await bridge.screen(false);
   assert.match(bridge.get('qt-advice'), /fresh board/);
   assert.doesNotMatch(bridge.get('qt-advice'), /Crimson Wine|Provisional/);
@@ -282,6 +291,7 @@ test('a Treasure right after a board read asks for the eye view, and advises not
   assert.equal(bridge.classes.has('qt-stale'), true);
   await bridge.screen(false);
   assert.match(bridge.get('qt-advice'), /fresh board/);
+  bridge.elapse(500);
   assert.equal(bridge.spoken.filter((t) => /View Prison Status/.test(t)).length, 1, `said: ${JSON.stringify(bridge.spoken)}`);
   // The eye view gives the exact advice, which holds back on the overlay.
   await bridge.screen(true);
@@ -319,8 +329,9 @@ test('a notification over the board is read again, not loaded: the board behind 
   // The banner goes: the same board as before, its advice back, said once.
   await bridge.screen({ board: 'A' });
   assert.equal(bridge.calls.useReading, 1);
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
-  assert.deepEqual(bridge.spoken, ['Go to cell 4.']);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
+  bridge.elapse(500);
+  assert.deepEqual(bridge.spoken, ['Cell 4.']);
   bridge.stop();
 });
 test('Read again loads a doubtful screen at once', async () => {
@@ -337,7 +348,7 @@ test('the whole Mac screen (AirPlay) is read like a window when nothing covers i
   const bridge = bridgeHarness({ surface: 'monitor' });
   await bridge.start();
   await bridge.screen({ board: 'A' });
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   bridge.stop();
 });
 test('a notification over the board is read again, not loaded: the board behind it comes back', async () => {
@@ -354,8 +365,9 @@ test('a notification over the board is read again, not loaded: the board behind 
   // The banner goes: the same board as before, its advice back, said once.
   await bridge.screen({ board: 'A' });
   assert.equal(bridge.calls.useReading, 1);
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
-  assert.deepEqual(bridge.spoken, ['Go to cell 4.']);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
+  bridge.elapse(500);
+  assert.deepEqual(bridge.spoken, ['Cell 4.']);
   bridge.stop();
 });
 test('Read again loads a doubtful screen at once', async () => {
@@ -372,7 +384,7 @@ test('the whole Mac screen (AirPlay) is read like a window when nothing covers i
   const bridge = bridgeHarness({ surface: 'monitor' });
   await bridge.start();
   await bridge.screen({ board: 'A' });
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   bridge.stop();
 });
 function contentRect(lum, w, h) {
@@ -424,11 +436,13 @@ test('each move is said once, not again when the same board is read again', asyn
   await bridge.start();
   await bridge.screen({ board: 'A' });
   await bridge.screen({ board: 'A' });
-  assert.deepEqual(bridge.spoken, ['Go to cell 4.']);
+  assert.deepEqual(bridge.spoken, ['Cell 4.']);
   await bridge.screen({ board: 'B' });
-  assert.deepEqual(bridge.spoken, ['Go to cell 4.', 'Go to cell 4.']);
+  bridge.elapse(500);
+  assert.deepEqual(bridge.spoken, ['Cell 4.', 'Cell 4.']);
   // A Treasure: the eye view is asked for, no gift is guessed aloud.
   await bridge.screen(false);
+  bridge.elapse(500);
   assert.match(bridge.spoken[2], /View Prison Status/);
   bridge.stop();
 });
@@ -446,6 +460,7 @@ test('unknown instruments: each is tapped and its name read, then the set is tak
   await bridge.screen({ board: 'A', tools: 2, sure: ['skewer'] });
   assert.match(bridge.get('qt-status'), /Tap instrument 1 of 2/);
   assert.match(bridge.get('qt-advice'), /advice hidden/i);
+  bridge.elapse(500);
   assert.ok(bridge.spoken.some((t) => /Tap instrument 1 of 2/.test(t)), `said: ${JSON.stringify(bridge.spoken)}`);
   // The first tip opens; its name is read. The same tip, still open, is not read twice.
   await bridge.screen({ board: 'A', tools: 2, tip: 'coin' });
@@ -459,11 +474,14 @@ test('unknown instruments: each is tapped and its name read, then the set is tak
   // The second tip: the set is complete and taken, and the advice comes at once.
   await bridge.screen({ board: 'A', tools: 2, tip: 'claws' });
   assert.deepEqual(bridge.calls.setTools, [['coin', 'claws']]);
-  assert.ok(bridge.spoken.some((t) => /Instruments set/.test(t)), `said: ${JSON.stringify(bridge.spoken)}`);
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  // Said at once: the move, which replaces the "Instruments set" note still waiting.
+  bridge.elapse(500);
+  assert.ok(!bridge.spoken.some((t) => /Instruments set/.test(t)), `said: ${JSON.stringify(bridge.spoken)}`);
+  assert.equal(bridge.spoken[bridge.spoken.length - 1], 'Cell 4.');
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   // The tip closed: the board as before, with advice.
   await bridge.screen({ board: 'A', tools: 2 });
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   bridge.stop();
 });
 test('a tip whose name can\'t be read is asked for again, then the player is asked to set the instruments by hand', async () => {
@@ -493,7 +511,7 @@ test('known instruments are never asked for; only a new one on the panel is', as
   await bridge.screen({ board: 'A', tools: 1, tip: 'coin' });
   assert.deepEqual(bridge.calls.setTools, [['coin']]);
   await bridge.screen({ board: 'B', tools: 1 });
-  assert.match(bridge.get('qt-advice'), /Advice: Go to cell 04/);
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
   // A third day: the panel shows one more than the run's locked set. That
   // may be a notification over the panel, so the doubt wait comes first.
   await bridge.screen({ board: 'C', tools: 2 });
@@ -565,7 +583,7 @@ test('with ?record=1 on the local site, each read board is recorded with its pic
   assert.equal(frame.body.png, 'data:image/png;base64,AAAA');
   const reading = posts.find((p) => p.body.type === 'reading');
   assert.equal(reading.body.ok, true);
-  assert.ok(posts.some((p) => p.body.type === 'advice' && /cell 04/.test(p.body.text)), 'the advice is recorded');
+  assert.ok(posts.some((p) => p.body.type === 'advice' && /Cell 04/.test(p.body.text)), 'the advice is recorded');
   bridge.stop();
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(posts.some((p) => p.body.type === 'stop'), 'the end of the capture is recorded');
@@ -591,6 +609,7 @@ test('an animated Treasure overlay after a board still asks for the eye view', a
   await bridge.screen({ board: 'A' });
   await bridge.screen(false);
   await new Promise((resolve) => setImmediate(resolve));
+  bridge.elapse(500);
   assert.ok(bridge.spoken.some((t) => /View Prison Status/.test(t)), `said: ${JSON.stringify(bridge.spoken)}`);
   assert.ok(!bridge.spoken.includes('Take Crimson Wine.'), 'no guess is said');
   bridge.stop();
@@ -601,6 +620,7 @@ test('an animated Treasure with no board seen says to open the eye, once', async
   await bridge.screen(false);
   await bridge.screen(false);
   await bridge.screen(false);
+  bridge.elapse(500);
   const eye = bridge.spoken.filter((t) => /View Prison Status/.test(t));
   assert.equal(eye.length, 1, `said: ${JSON.stringify(bridge.spoken)}`);
   bridge.stop();
@@ -638,15 +658,73 @@ test('a board behind a popup that never stops moving still gets its advice said'
   await bridge.start();
   await bridge.restless({ board: 'A' });
   // Said as "cell 4": the voice read the padded "04" as "zero four".
-  assert.ok(bridge.spoken.includes('Go to cell 4.'), `said: ${JSON.stringify(bridge.spoken)}`);
-  assert.equal(bridge.spoken.filter((t) => t === 'Go to cell 4.').length, 1);
+  assert.ok(bridge.spoken.includes('Cell 4.'), `said: ${JSON.stringify(bridge.spoken)}`);
+  assert.equal(bridge.spoken.filter((t) => t === 'Cell 4.').length, 1);
+  bridge.stop();
+});
+// The user, 2026-11-01: two moves said in a row ran into each other, so a
+// move waits half a second before it is said, and a quick change of mind
+// replaces the one waiting.
+test('a move is said half a second after it shows, and a change within that is said once', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  assert.match(bridge.get('qt-advice'), /Advice: Cell 04/);
+  assert.deepEqual(bridge.spoken, [], 'not said at once');
+  bridge.move('devour');
+  bridge.poll(180);
+  assert.match(bridge.get('qt-advice'), /Advice: Consume cell 04/);
+  bridge.elapse(300);
+  assert.deepEqual(bridge.spoken, [], 'still within the half second of the new move');
+  bridge.elapse(200);
+  assert.deepEqual(bridge.spoken, ['Consume cell 4.']);
+  bridge.stop();
+});
+test('turning the voice off drops a move not yet said', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.elements.get('qt-speak').checked = false;
+  bridge.elapse(1000);
+  assert.deepEqual(bridge.spoken, []);
+  bridge.stop();
+});
+test('stopping the capture drops a move not yet said', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  bridge.stop();
+  bridge.elapse(1000);
+  assert.deepEqual(bridge.spoken, []);
+});
+test('the short phrases: one word for a button, the cell for a move', async () => {
+  const bridge = bridgeHarness({ storage: { 'qt-speak': '1' } });
+  await bridge.start();
+  await bridge.screen({ board: 'A' });
+  const text = (action) => { bridge.move(action); bridge.poll(180); return bridge.get('qt-advice'); };
+  assert.equal(text({ type: 'patrol', cell: 0 }), 'Advice: Office.');
+  assert.equal(text({ type: 'patrol', cell: 3 }), 'Advice: Cell 04.');
+  assert.equal(text({ type: 'devour', to: 11 }), 'Advice: Consume cell 12.');
+  assert.equal(text({ type: 'chain', to: 4 }), 'Advice: Consume cell 05.');
+  assert.equal(text({ type: 'swap' }), 'Advice: Replace.');
+  assert.equal(text({ type: 'stopchain' }), 'Advice: Cancel chain.');
+  assert.equal(text({ type: 'office', choice: 'instigate' }), 'Advice: Instigate.');
+  assert.equal(text({ type: 'office', choice: 'bestow' }), 'Advice: Bestow.');
+  assert.equal(text({ type: 'event', accept: true }), 'Advice: Accept.');
+  assert.equal(text({ type: 'event', accept: false }), 'Advice: Skip.');
+  assert.equal(text({ type: 'choose', id: 'wine' }), 'Advice: Take Crimson Wine.');
+  assert.equal(text({ type: 'reroll' }), 'Advice: Re-roll.');
+  assert.equal(text({ type: 'hunt', to: 6 }), 'Advice: Mark cell 07.');
+  bridge.elapse(500);
+  assert.deepEqual(bridge.spoken, ['Mark cell 7.'], 'only the last move is said');
   bridge.stop();
 });
 test('the voice is on unless the player turned it off', async () => {
-  for (const [storage, said] of [[{}, ['Go to cell 4.']], [{ 'qt-speak': '0' }, []]]) {
+  for (const [storage, said] of [[{}, ['Cell 4.']], [{ 'qt-speak': '0' }, []]]) {
     const bridge = bridgeHarness({ storage });
     await bridge.start();
     await bridge.screen({ board: 'A' });
+    bridge.elapse(500);
     assert.deepEqual(bridge.spoken, said);
     bridge.stop();
   }
@@ -693,12 +771,14 @@ test('the advice is said in the best voice, or the one the player picked', async
   let bridge = bridgeHarness({ voices });
   await bridge.start();
   await bridge.screen({ board: 'A' });
+  bridge.elapse(500);
   assert.deepEqual(bridge.voicesUsed, ['Samantha']);
   bridge.stop();
   // A saved voice this Mac doesn't have: the best one instead.
   bridge = bridgeHarness({ voices, storage: { 'qt-voice': 'Ava (Premium)' } });
   await bridge.start();
   await bridge.screen({ board: 'A' });
+  bridge.elapse(500);
   assert.deepEqual(bridge.voicesUsed, ['Samantha']);
   bridge.stop();
 });
