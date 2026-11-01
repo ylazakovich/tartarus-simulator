@@ -466,10 +466,13 @@ test('unknown instruments: each is tapped and its name read, then the set is tak
   assert.match(bridge.get('qt-status'), /Tap instrument 1 of 2/);
   assert.match(bridge.get('qt-advice'), /advice hidden/i);
   bridge.elapse(500);
-  assert.ok(bridge.spoken.some((t) => /Tap instrument 1 of 2/.test(t)), `said: ${JSON.stringify(bridge.spoken)}`);
+  // The voice says the short form of the panel's prompt (the user, 2026-11-01).
+  assert.deepEqual(bridge.spoken, ['Tap instrument 1.'], `said: ${JSON.stringify(bridge.spoken)}`);
   // The first tip opens; its name is read. The same tip, still open, is not read twice.
   await bridge.screen({ board: 'A', tools: 2, tip: 'coin' });
   assert.match(bridge.get('qt-status'), /Tap instrument 2 of 2/);
+  bridge.elapse(500);
+  assert.deepEqual(bridge.spoken, ['Tap instrument 1.', 'Tap instrument 2.'], `said: ${JSON.stringify(bridge.spoken)}`);
   await bridge.screen({ board: 'A', tools: 2, tip: 'coin' });
   assert.match(bridge.get('qt-status'), /Tap instrument 2 of 2/);
   // The tip closed for a moment: the board is read as usual, the survey goes on.
@@ -522,6 +525,8 @@ test('known instruments are never asked for; only a new one on the panel is', as
   await bridge.screen({ board: 'C', tools: 2 });
   await bridge.wait(7000);
   assert.match(bridge.get('qt-status'), /Tap the new instrument/);
+  bridge.elapse(500);
+  assert.equal(bridge.spoken[bridge.spoken.length - 1], 'Tap the new one.', `said: ${JSON.stringify(bridge.spoken)}`);
   await bridge.screen({ board: 'C', tools: 2, tip: 'claws' });
   assert.deepEqual(bridge.calls.setTools, [['coin'], ['coin', 'claws']]);
   bridge.stop();
